@@ -62,11 +62,32 @@ import { registerSchema, loginSchema, refreshTokenSchema } from '../validators/a
  *                 description: Edad del usuario (mínimo 13 años)
  *     responses:
  *       201:
- *         description: Usuario registrado exitosamente
+ *         description: Usuario registrado exitosamente. El refreshToken se envía en una httpOnly cookie.
+ *         headers:
+ *           Set-Cookie:
+ *             description: Cookie httpOnly con el refresh token
+ *             schema:
+ *               type: string
+ *               example: refreshToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; Path=/; HttpOnly; Secure; SameSite=Strict
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: User registered successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       $ref: '#/components/schemas/User'
+ *                     accessToken:
+ *                       type: string
+ *                       description: Token de acceso (usar en header Authorization Bearer)
  *       400:
  *         description: Error de validación
  *         content:
@@ -104,11 +125,32 @@ import { registerSchema, loginSchema, refreshTokenSchema } from '../validators/a
  *                 example: Password123!
  *     responses:
  *       200:
- *         description: Login exitoso
+ *         description: Login exitoso. El refreshToken se envía en una httpOnly cookie.
+ *         headers:
+ *           Set-Cookie:
+ *             description: Cookie httpOnly con el refresh token
+ *             schema:
+ *               type: string
+ *               example: refreshToken=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...; Path=/; HttpOnly; Secure; SameSite=Strict
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Login successful
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user:
+ *                       $ref: '#/components/schemas/User'
+ *                     accessToken:
+ *                       type: string
+ *                       description: Token de acceso (usar en header Authorization Bearer)
  *       401:
  *         description: Credenciales inválidas
  *         content:
@@ -125,24 +167,23 @@ import { registerSchema, loginSchema, refreshTokenSchema } from '../validators/a
  * /api/v1/auth/refresh:
  *   post:
  *     summary: Refrescar token de acceso
- *     description: Genera un nuevo token de acceso usando el refresh token
+ *     description: Genera un nuevo token de acceso usando el refresh token almacenado en cookie httpOnly. No requiere body.
  *     tags: [Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - refreshToken
- *             properties:
- *               refreshToken:
- *                 type: string
- *                 example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
- *                 description: Token de refresco obtenido en login/register
+ *     parameters:
+ *       - in: cookie
+ *         name: refreshToken
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Refresh token en cookie httpOnly (enviado automáticamente por el navegador)
  *     responses:
  *       200:
- *         description: Token refrescado exitosamente
+ *         description: Token refrescado exitosamente. Nuevo refreshToken en cookie.
+ *         headers:
+ *           Set-Cookie:
+ *             description: Cookie httpOnly con el nuevo refresh token
+ *             schema:
+ *               type: string
  *         content:
  *           application/json:
  *             schema:
@@ -151,21 +192,41 @@ import { registerSchema, loginSchema, refreshTokenSchema } from '../validators/a
  *                 success:
  *                   type: boolean
  *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Token refreshed
  *                 data:
  *                   type: object
  *                   properties:
- *                     token:
+ *                     accessToken:
  *                       type: string
  *                       description: Nuevo token de acceso
- *                     refreshToken:
- *                       type: string
- *                       description: Nuevo refresh token
  *       401:
- *         description: Refresh token inválido o expirado
+ *         description: Refresh token inválido, expirado o no encontrado
  *         content:
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
+ *
+ * /api/v1/auth/logout:
+ *   post:
+ *     summary: Cerrar sesión
+ *     description: Elimina la cookie del refresh token
+ *     tags: [Auth]
+ *     responses:
+ *       200:
+ *         description: Logout exitoso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: Logout successful
  *
  * /api/v1/auth/me:
  *   get:
@@ -205,8 +266,11 @@ export function createAuthRoutes(userRepository, cacheService) {
   // POST /api/v1/auth/login
   router.post('/login', validate(loginSchema), authController.login);
 
-  // POST /api/v1/auth/refresh
-  router.post('/refresh', validate(refreshTokenSchema), authController.refresh);
+  // POST /api/v1/auth/refresh - Ya no necesita validación de body porque lee de cookie
+  router.post('/refresh', authController.refresh);
+
+  // POST /api/v1/auth/logout
+  router.post('/logout', authController.logout);
 
   // GET /api/v1/auth/me (protected route)
   router.get('/me', authMiddleware, authController.getMe);

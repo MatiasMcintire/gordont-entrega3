@@ -97,13 +97,20 @@ export class AuthController {
 
       const refreshToken = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: '7d' });
 
+      // Enviar refreshToken en httpOnly cookie (más seguro)
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true, // No accesible desde JavaScript
+        secure: config.isProduction, // Solo HTTPS en producción
+        sameSite: 'strict', // Protección CSRF
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+      });
+
       return res.status(201).json({
         success: true,
         message: 'User registered successfully',
         data: {
           user: user.toJSON(),
-          accessToken,
-          refreshToken,
+          accessToken, // Solo enviamos el accessToken en JSON
         },
       });
     } catch (error) {
@@ -156,6 +163,14 @@ export class AuthController {
 
       const refreshToken = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: '7d' });
 
+      // Enviar refreshToken en httpOnly cookie (más seguro)
+      res.cookie('refreshToken', refreshToken, {
+        httpOnly: true, // No accesible desde JavaScript
+        secure: config.isProduction, // Solo HTTPS en producción
+        sameSite: 'strict', // Protección CSRF
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días
+      });
+
       logger.info('User login', {
         userId: user.id,
         email,
@@ -167,8 +182,7 @@ export class AuthController {
         message: 'Login successful',
         data: {
           user: user.toJSON(),
-          accessToken,
-          refreshToken,
+          accessToken, // Solo enviamos el accessToken en JSON
         },
       });
     } catch (error) {
@@ -186,19 +200,49 @@ export class AuthController {
 
   refresh = async (req, res) => {
     try {
-      const { refreshToken } = req.body;
+      // Leer refreshToken desde la cookie httpOnly (más seguro)
+      const refreshToken = req.cookies?.refreshToken;
 
       if (!refreshToken) {
-        return res.status(400).json({
+        return res.status(401).json({
           success: false,
-          error: { message: 'Refresh token is required' },
+          error: { message: 'Refresh token not found. Please login again.' },
         });
       }
 
       const jwtSecret = this._getJwtSecret();
       const decoded = jwt.verify(refreshToken, jwtSecret);
 
-      const newAccessToken = jwt.sign({ id: decoded.id }, jwtSecret, { expiresIn: '24h' });
+      // Buscar usuario para incluir role y email en el nuevo token
+      const user = await this.userRepository.findById(decoded.id);
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          error: { message: 'User not found' },
+        });
+      }
+
+      // Generar nuevo accessToken con toda la info necesaria
+      const newAccessToken = jwt.sign(
+        { id: user.id, email: user.email, role: user.role },
+        jwtSecret,
+        { expiresIn: '24h' }
+      );
+
+      // Opcionalmente, rotar el refreshToken (mejor práctica)
+      const newRefreshToken = jwt.sign({ id: user.id }, jwtSecret, { expiresIn: '7d' });
+
+      res.cookie('refreshToken', newRefreshToken, {
+        httpOnly: true,
+        secure: config.isProduction,
+        sameSite: 'strict',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+
+      logger.info('Token refreshed', {
+        userId: user.id,
+        requestId: req.id,
+      });
 
       return res.status(200).json({
         success: true,
@@ -213,7 +257,38 @@ export class AuthController {
       });
       return res.status(401).json({
         success: false,
-        error: { message: 'Invalid refresh token' },
+        error: { message: 'Invalid or expired refresh token' },
+      });
+    }
+  };
+
+  logout = async (req, res) => {
+    try {
+      // Limpiar la cookie del refreshToken
+      res.clearCookie('refreshToken', {
+        httpOnly: true,
+        secure: config.isProduction,
+        sameSite: 'strict',
+      });
+
+      logger.info('User logout', {
+        userId: req.user?.id,
+        requestId: req.id,
+      });
+
+      return res.status(200).json({
+        success: true,
+        message: 'Logout successful',
+      });
+    } catch (error) {
+      logger.error('Logout error', {
+        error: error.message,
+        stack: error.stack,
+        requestId: req.id,
+      });
+      return res.status(500).json({
+        success: false,
+        error: { message: error.message },
       });
     }
   };

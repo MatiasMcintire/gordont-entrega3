@@ -40,10 +40,17 @@ describe('Auth Integration Tests', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.data).toHaveProperty('accessToken');
-      expect(response.body.data).toHaveProperty('refreshToken');
+      expect(response.body.data).not.toHaveProperty('refreshToken'); // NO debe estar en JSON
       expect(response.body.data.user).toHaveProperty('id');
       expect(response.body.data.user.email).toBe(newUser.email);
       expect(response.body.data.user).not.toHaveProperty('password');
+
+      // Verificar que refreshToken está en cookie httpOnly
+      const cookies = response.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+      const refreshTokenCookie = cookies.find((cookie) => cookie.startsWith('refreshToken='));
+      expect(refreshTokenCookie).toBeDefined();
+      expect(refreshTokenCookie).toContain('HttpOnly');
 
       // Save for cleanup
       testUserId = response.body.data.user.id;
@@ -140,8 +147,15 @@ describe('Auth Integration Tests', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.data).toHaveProperty('accessToken');
-      expect(response.body.data).toHaveProperty('refreshToken');
+      expect(response.body.data).not.toHaveProperty('refreshToken'); // NO debe estar en JSON
       expect(response.body.data.user.email).toBe(testUser.email);
+
+      // Verificar que refreshToken está en cookie httpOnly
+      const cookies = response.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+      const refreshTokenCookie = cookies.find((cookie) => cookie.startsWith('refreshToken='));
+      expect(refreshTokenCookie).toBeDefined();
+      expect(refreshTokenCookie).toContain('HttpOnly');
     });
 
     it('should fail with wrong password', async () => {
@@ -208,7 +222,7 @@ describe('Auth Integration Tests', () => {
   });
 
   describe('POST /api/v1/auth/refresh', () => {
-    let refreshToken;
+    let refreshTokenCookie;
 
     beforeAll(async () => {
       // Create unique user for refresh token tests
@@ -224,38 +238,44 @@ describe('Auth Integration Tests', () => {
       // Register user
       await request(app).post('/api/v1/auth/register').send(testUser);
 
-      // Login to get refresh token
+      // Login to get refresh token cookie
       const loginResponse = await request(app).post('/api/v1/auth/login').send({
         email: testUser.email,
         password: testUser.password,
       });
 
-      refreshToken = loginResponse.body.data.refreshToken;
+      // Extraer la cookie del refreshToken
+      const cookies = loginResponse.headers['set-cookie'];
+      refreshTokenCookie = cookies.find((cookie) => cookie.startsWith('refreshToken='));
     });
 
-    it('should refresh token with valid refresh token', async () => {
+    it('should refresh token with valid refresh token cookie', async () => {
       const response = await request(app)
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken })
+        .set('Cookie', refreshTokenCookie)
         .expect(200);
 
       expect(response.body.success).toBe(true);
       expect(response.body.data).toHaveProperty('accessToken');
-      // Note: Some implementations only return new accessToken, not refreshToken
-      // This is acceptable as the client can reuse the same refreshToken
+
+      // Verificar que se emite un nuevo refreshToken en cookie (rotación)
+      const cookies = response.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+      const newRefreshTokenCookie = cookies.find((cookie) => cookie.startsWith('refreshToken='));
+      expect(newRefreshTokenCookie).toBeDefined();
     });
 
     it('should fail with invalid refresh token', async () => {
       const response = await request(app)
         .post('/api/v1/auth/refresh')
-        .send({ refreshToken: 'invalid-token' })
+        .set('Cookie', 'refreshToken=invalid-token')
         .expect(401);
 
       expect(response.body.success).toBe(false);
     });
 
-    it('should fail without refresh token', async () => {
-      const response = await request(app).post('/api/v1/auth/refresh').send({}).expect(400);
+    it('should fail without refresh token cookie', async () => {
+      const response = await request(app).post('/api/v1/auth/refresh').expect(401);
 
       expect(response.body.success).toBe(false);
     });
