@@ -5,6 +5,7 @@ import compression from 'compression';
 import mongoSanitize from 'express-mongo-sanitize';
 import rateLimit from 'express-rate-limit';
 import swaggerUi from 'swagger-ui-express';
+import cookieParser from 'cookie-parser';
 import Redis from 'redis';
 import { swaggerSpec } from './swagger/swagger.js';
 import { createAuthRoutes } from './presentation/routes/auth.routes.js';
@@ -133,6 +134,9 @@ async function createApp() {
   // Body parsers
   app.use(express.json({ limit: '10kb' }));
   app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+
+  // Cookie parser - para leer cookies httpOnly del refresh token
+  app.use(cookieParser());
 
   // Sanitize data against NoSQL injection
   app.use(mongoSanitize());
